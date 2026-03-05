@@ -65,8 +65,15 @@ class BatchSummarizer:
             if api_key:
                 self.client = Anthropic(api_key=api_key)
         except ImportError:
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                import warnings
+                warnings.warn(
+                    "ANTHROPIC_API_KEY is set but the 'anthropic' package is not installed. "
+                    "Install it with: pip install jcodemunch-mcp[anthropic]",
+                    stacklevel=2,
+                )
             self.client = None
-    
+
     def summarize_batch(self, symbols: list[Symbol], batch_size: int = 10) -> list[Symbol]:
         """Summarize a batch of symbols using AI.
         
@@ -187,6 +194,13 @@ class GeminiBatchSummarizer:
                 genai.configure(api_key=api_key)
                 self.client = genai.GenerativeModel(self.model)
         except ImportError:
+            if os.environ.get("GOOGLE_API_KEY"):
+                import warnings
+                warnings.warn(
+                    "GOOGLE_API_KEY is set but the 'google-generativeai' package is not installed. "
+                    "Install it with: pip install jcodemunch-mcp[gemini]",
+                    stacklevel=2,
+                )
             self.client = None
 
     def summarize_batch(self, symbols: list[Symbol], batch_size: int = 10) -> list[Symbol]:
