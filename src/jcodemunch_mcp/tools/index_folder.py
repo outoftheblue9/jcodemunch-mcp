@@ -60,15 +60,20 @@ def _load_all_gitignores(root: Path) -> dict[Path, pathspec.PathSpec]:
 
     Supports monorepos and poncho-style projects where subdirectories each
     have their own .gitignore (e.g. cap/.gitignore, core/.gitignore).
+
+    Uses os.walk(followlinks=False) to avoid infinite loops caused by
+    NTFS junctions or symlinks pointing back to ancestor directories.
     """
     specs: dict[Path, pathspec.PathSpec] = {}
-    for gitignore_path in root.rglob(".gitignore"):
-        try:
-            content = gitignore_path.read_text(encoding="utf-8", errors="replace")
-            spec = pathspec.PathSpec.from_lines("gitignore", content.splitlines())
-            specs[gitignore_path.parent.resolve()] = spec
-        except Exception:
-            pass
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
+        if ".gitignore" in filenames:
+            gitignore_path = Path(dirpath) / ".gitignore"
+            try:
+                content = gitignore_path.read_text(encoding="utf-8", errors="replace")
+                spec = pathspec.PathSpec.from_lines("gitignore", content.splitlines())
+                specs[gitignore_path.parent.resolve()] = spec
+            except Exception:
+                pass
     return specs
 
 
@@ -176,10 +181,14 @@ def discover_local_files(
         except Exception:
             pass
 
-    for file_path in folder_path.rglob("*"):
-        # Skip directories
-        if not file_path.is_file():
-            continue
+    # Use os.walk with followlinks=False to avoid infinite loops caused by
+    # NTFS junctions or symlinks pointing back to ancestor directories.
+    raw_walk = (
+        Path(dirpath) / filename
+        for dirpath, dirnames, filenames in os.walk(str(folder_path), followlinks=False)
+        for filename in filenames
+    )
+    for file_path in raw_walk:
 
         # Symlink protection
         if not follow_symlinks and file_path.is_symlink():

@@ -28,6 +28,7 @@ def _get_git_head(repo_path: Path) -> Optional[str]:
             ["git", "rev-parse", "HEAD"],
             cwd=str(repo_path),
             capture_output=True, text=True, timeout=5,
+            stdin=subprocess.DEVNULL,
         )
         if result.returncode == 0:
             return result.stdout.strip()
