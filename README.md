@@ -1,5 +1,5 @@
 ## FREE FOR PERSONAL USE
-**Use it to make money, and Uncle J. gets a taste. Fair enough?**
+**Use it to make money, and Uncle J. gets a taste. Fair enough?** [details](#commercial-licenses)
 
 ## Cut code-reading token costs by up to **99%**
 
