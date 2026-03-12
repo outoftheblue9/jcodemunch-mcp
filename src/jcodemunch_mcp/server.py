@@ -24,6 +24,8 @@ from .tools.search_symbols import search_symbols
 from .tools.invalidate_cache import invalidate_cache
 from .tools.search_text import search_text
 from .tools.get_repo_outline import get_repo_outline
+from .tools.find_importers import find_importers
+from .tools.find_references import find_references
 
 
 logger = logging.getLogger(__name__)
@@ -328,6 +330,32 @@ async def list_tools() -> list[Tool]:
                 "required": ["repo"]
             }
         ),
+        Tool(
+            name="find_importers",
+            description="Find all files that import from a given file path. Answers 'what uses this file?'. Requires re-indexing with v1.3.0+.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Repository identifier"},
+                    "file_path": {"type": "string", "description": "Target file path within the repo (e.g. 'src/features/intake/IntakeService.js')"},
+                    "max_results": {"type": "integer", "default": 50, "description": "Maximum results"},
+                },
+                "required": ["repo", "file_path"],
+            },
+        ),
+        Tool(
+            name="find_references",
+            description="Find all files that import or reference a given identifier (symbol name, module name, or class name). Answers 'where is this used?'. Requires re-indexing with v1.3.0+.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Repository identifier"},
+                    "identifier": {"type": "string", "description": "Symbol or module name to search for (e.g. 'bulkImport', 'IntakeService')"},
+                    "max_results": {"type": "integer", "default": 50, "description": "Maximum results"},
+                },
+                "required": ["repo", "identifier"],
+            },
+        ),
     ]
 
 
@@ -463,6 +491,26 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 functools.partial(
                     get_repo_outline,
                     repo=arguments["repo"],
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "find_importers":
+            result = await asyncio.to_thread(
+                functools.partial(
+                    find_importers,
+                    repo=arguments["repo"],
+                    file_path=arguments["file_path"],
+                    max_results=arguments.get("max_results", 50),
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "find_references":
+            result = await asyncio.to_thread(
+                functools.partial(
+                    find_references,
+                    repo=arguments["repo"],
+                    identifier=arguments["identifier"],
+                    max_results=arguments.get("max_results", 50),
                     storage_path=storage_path,
                 )
             )
