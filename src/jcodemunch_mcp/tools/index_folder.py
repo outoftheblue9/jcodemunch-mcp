@@ -340,7 +340,34 @@ def index_folder(
     if not folder_path.is_dir():
         return {"success": False, "error": f"Path is not a directory: {path}"}
 
+    # Guard against dangerously broad roots.  A relative path like "." resolves
+    # against the MCP server's CWD (not the caller's project directory), which
+    # can be "/" or "~" when the server is launched by a system launcher.
+    # Reject paths with fewer than 3 parts (e.g. "/", "/home", "C:\Users") and
+    # warn whenever the caller supplied a relative path so the resolved value is
+    # always visible in the tool response.
+    _MIN_PATH_PARTS = 3
+    if len(folder_path.parts) < _MIN_PATH_PARTS:
+        return {
+            "success": False,
+            "error": (
+                f"Resolved path '{folder_path}' is too broad to index safely "
+                f"(fewer than {_MIN_PATH_PARTS} path components). "
+                "Pass an absolute path to the specific project directory instead of a "
+                "relative path like '.' — relative paths resolve against the MCP "
+                "server's working directory, which may not be your project root."
+            ),
+        }
+
     warnings = []
+
+    # Warn when a relative path was given so callers can see what it resolved to.
+    if not Path(path).expanduser().is_absolute():
+        warnings.append(
+            f"Relative path '{path}' resolved to '{folder_path}' (MCP server CWD). "
+            "Prefer passing an absolute path to avoid unexpected behaviour."
+        )
+
     max_files = get_max_folder_files()
 
     try:
