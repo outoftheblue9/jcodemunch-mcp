@@ -210,3 +210,12 @@ Start with **[QUICKSTART.md](QUICKSTART.md)** for the fastest setup path.
 
 Then index a repo, ask your agent what it has indexed, and have it retrieve code by symbol instead of reading entire files. That is where the savings start.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=jgravelle%2Fjcodemunch-mcp&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=jgravelle/jcodemunch-mcp&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=jgravelle/jcodemunch-mcp&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=jgravelle/jcodemunch-mcp&type=date&legend=top-left" />
+ </picture>
+</a>
