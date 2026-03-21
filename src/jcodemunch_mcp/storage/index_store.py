@@ -442,7 +442,7 @@ class IndexStore:
         if file_hashes is None:
             file_hashes = {fp: _file_hash(content) for fp, content in raw_files.items()}
 
-        return self._sqlite.save_index(
+        result = self._sqlite.save_index(
             owner=owner, name=name,
             source_files=normalized_source_files, symbols=symbols,
             raw_files=raw_files, languages=resolved_languages,
@@ -452,6 +452,19 @@ class IndexStore:
             imports=imports, context_metadata=context_metadata,
             file_blob_shas=file_blob_shas, file_mtimes=file_mtimes,
         )
+
+        # Clean up any legacy JSON now that data is safely in SQLite.
+        index_path = self._index_path(owner, name)
+        if index_path.exists():
+            try:
+                index_path.rename(index_path.with_suffix(".json.migrated"))
+            except OSError:
+                index_path.unlink(missing_ok=True)
+        self._meta_path(owner, name).unlink(missing_ok=True)
+        self._lock_path(owner, name).unlink(missing_ok=True)
+        self._checksum_path(index_path).unlink(missing_ok=True)
+
+        return result
 
     def has_index(self, owner: str, name: str) -> bool:
         """Return True if an index exists (SQLite or JSON)."""
@@ -631,11 +644,20 @@ class IndexStore:
             except Exception:
                 logger.debug("Skipping corrupted DB: %s", db_file, exc_info=True)
 
-        # Pass 2: legacy JSON (meta sidecars first, then full JSON)
+        # Pass 2: legacy JSON — eagerly migrate to SQLite so that every
+        # repo is in the canonical format before any tool can interact with it.
+        # This prevents data loss when invalidate_cache is called before
+        # load_index has had a chance to trigger lazy migration.
+        json_files_to_migrate: list[Path] = []
+
         for meta_file in self.base_path.glob("*.meta.json"):
             slug = meta_file.name.removesuffix(".meta.json")
             if slug in seen_slugs:
                 continue
+            # Check if a matching .json exists for migration
+            json_path = self.base_path / f"{slug}.json"
+            if json_path.exists():
+                json_files_to_migrate.append(json_path)
             seen_slugs.add(slug)
             try:
                 with open(meta_file, "r", encoding="utf-8") as f:
@@ -650,6 +672,7 @@ class IndexStore:
             slug = index_file.name.removesuffix(".json")
             if slug in seen_slugs or slug.endswith(".meta"):
                 continue
+            json_files_to_migrate.append(index_file)
             try:
                 with open(index_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -659,21 +682,62 @@ class IndexStore:
             except Exception:
                 continue
 
+        # Eagerly migrate discovered JSON indexes to SQLite (fire-and-forget;
+        # failures are logged but don't block the listing).
+        for json_path in json_files_to_migrate:
+            slug = json_path.stem
+            # Extract owner/name from slug: "owner-name" → ("owner", "name")
+            parts = slug.split("-", 1)
+            if len(parts) != 2:
+                continue
+            owner, name = parts
+            if self._sqlite.has_index(owner, name):
+                continue  # already migrated
+            try:
+                logger.info("Eager-migrating %s from JSON to SQLite", json_path)
+                self._sqlite.migrate_from_json(json_path, owner, name)
+            except Exception:
+                logger.warning(
+                    "Failed to eager-migrate %s — will retry on next load_index",
+                    json_path, exc_info=True,
+                )
+
         repos.sort(key=lambda repo: repo["repo"])
         return repos
 
     def delete_index(self, owner: str, name: str) -> bool:
-        """Delete an index (SQLite + legacy JSON + content dir)."""
+        """Delete an index (SQLite DB + sidecars + content dir).
+
+        Legacy .json index files are only deleted when a SQLite .db already
+        existed (meaning the data was safely migrated).  If the JSON is the
+        *only* copy of the data, deleting it would silently discard user data
+        with no backup.  In that case we preserve the JSON — it will be
+        replaced automatically on the next index_folder / save_index call.
+        """
+        db_existed = self._sqlite.has_index(owner, name)
         deleted = self._sqlite.delete_index(owner, name)
 
-        # Also clean up legacy JSON artifacts
         index_path = self._index_path(owner, name)
         meta_path = self._meta_path(owner, name)
         lock_path = self._lock_path(owner, name)
 
         if index_path.exists():
-            index_path.unlink()
-            deleted = True
+            if db_existed:
+                # Data was already in SQLite; JSON is a redundant legacy file.
+                index_path.unlink()
+                deleted = True
+            else:
+                # JSON is the sole copy — do NOT delete it.
+                # Still report deleted=True so invalidate_cache returns success
+                # (the SQLite system has nothing to offer; the JSON will be
+                # overwritten on the next index_folder run).
+                logger.warning(
+                    "delete_index: preserving unmigrated JSON for %s/%s — "
+                    "it will be replaced on the next index_folder run.",
+                    owner, name,
+                )
+                deleted = True
+
         meta_path.unlink(missing_ok=True)
         lock_path.unlink(missing_ok=True)
         self._checksum_path(index_path).unlink(missing_ok=True)
