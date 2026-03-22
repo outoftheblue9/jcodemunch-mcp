@@ -283,6 +283,18 @@ def test_get_file_outline_batch(tmp_path):
     assert "src/b.py" in files
 
 
+def test_get_file_outline_batch_empty_list(tmp_path):
+    """Empty file_paths list returns empty results."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.py").write_text("def foo(): pass")
+    idx = index_folder(path=str(tmp_path), use_ai_summaries=False, storage_path=str(tmp_path / "idx"))
+    repo = idx["repo"]
+
+    result = get_file_outline(repo=repo, file_paths=[], storage_path=str(tmp_path / "idx"))
+    assert result["results"] == []
+
+
 def test_get_file_outline_both_params_raises(tmp_path):
     """Passing both file_path and file_paths raises ValueError."""
     src = tmp_path / "src"

@@ -135,3 +135,27 @@ class TestCheckReferences:
         # Should find content reference in app.py (not import, since no import data)
         assert result["is_referenced"] is True
         assert result["content_count"] == 1
+
+    def test_neither_param_raises(self, tmp_path):
+        """Passing neither identifier nor identifiers raises ValueError."""
+        src = tmp_path / "src"
+        src.mkdir()
+        _write(src / "utils.py", "def helper(): pass")
+        idx = index_folder(path=str(tmp_path), use_ai_summaries=False, storage_path=str(tmp_path / "idx"))
+        repo = idx["repo"]
+
+        from jcodemunch_mcp.tools.check_references import check_references
+        with pytest.raises(ValueError):
+            check_references(repo=repo, storage_path=str(tmp_path / "idx"))
+
+    def test_both_params_raises(self, tmp_path):
+        """Passing both identifier and identifiers raises ValueError."""
+        src = tmp_path / "src"
+        src.mkdir()
+        _write(src / "utils.py", "def helper(): pass")
+        idx = index_folder(path=str(tmp_path), use_ai_summaries=False, storage_path=str(tmp_path / "idx"))
+        repo = idx["repo"]
+
+        from jcodemunch_mcp.tools.check_references import check_references
+        with pytest.raises(ValueError):
+            check_references(repo=repo, identifier="helper", identifiers=["helper"], storage_path=str(tmp_path / "idx"))

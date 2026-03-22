@@ -770,6 +770,17 @@ class TestFindReferences:
         assert "references" in result
         assert "results" not in result
 
+    def test_batch_empty_list(self, tmp_path):
+        """Empty identifiers list returns empty results."""
+        src = tmp_path / "src"
+        src.mkdir()
+        _write(src / "app.js", "console.log('hi')")
+        result = index_folder(path=str(tmp_path), use_ai_summaries=False, storage_path=str(tmp_path / "idx"))
+        repo = result["repo"]
+
+        result = find_references(repo=repo, identifiers=[], storage_path=str(tmp_path / "idx"))
+        assert result["results"] == []
+
     def test_both_identifier_and_identifiers_raises(self, tmp_path):
         """Passing both identifier and identifiers raises ValueError."""
         src = tmp_path / "src"

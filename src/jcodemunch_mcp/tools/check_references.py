@@ -76,10 +76,9 @@ def _check_single(
             except OSError:
                 continue
 
-            query_lower = identifier.lower()
             file_matches = []
             for line_index, line in enumerate(content.split("\n")):
-                if query_lower in line.lower():
+                if ident_lower in line.lower():
                     file_matches.append({
                         "line": line_index + 1,
                         "text": line.rstrip()[:200],

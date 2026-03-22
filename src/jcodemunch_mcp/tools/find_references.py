@@ -89,20 +89,29 @@ def _find_references_batch(
             "_meta": {"timing_ms": round((time.perf_counter() - start) * 1000, 1)},
         }
 
-    # Build reverse map once: identifier_lower -> list of file entries  O(M)
-    ident_map: dict[str, list[dict]] = {}
+    # Pre-compute lowercased query identifiers for Bug C fix
+    query_stems = {ident.lower() for ident in identifiers}
+
+    # Build reverse map: identifier_lower -> dict of file -> entry (deduped per file, Bug B fix)
+    # Only populate spec_stem when it matches a query identifier (Bug C fix)
+    # First-match-wins on match_type: batch path is flat (no per-import matches array like
+    # the single path), so we can't expose both match types meaningfully; "named" takes
+    # priority since it represents a more specific import name match.
+    ident_map: dict[str, dict[str, dict]] = {}
     for src_file, file_imports in index.imports.items():
         for imp in file_imports:
             for name_or_stem in imp.get("names", []):
                 key = name_or_stem.lower()
-                ident_map.setdefault(key, []).append({"file": src_file, "specifier": imp["specifier"], "match_type": "named"})
+                if src_file not in ident_map.get(key, {}):
+                    ident_map.setdefault(key, {})[src_file] = {"file": src_file, "specifier": imp["specifier"], "match_type": "named"}
             spec_stem = posixpath.splitext(posixpath.basename(imp["specifier"]))[0].lower()
-            ident_map.setdefault(spec_stem, []).append({"file": src_file, "specifier": imp["specifier"], "match_type": "specifier_stem"})
+            if spec_stem in query_stems and src_file not in ident_map.get(spec_stem, {}):
+                ident_map.setdefault(spec_stem, {})[src_file] = {"file": src_file, "specifier": imp["specifier"], "match_type": "specifier_stem"}
 
     results = []
     for identifier in identifiers:
         ident_lower = identifier.lower()
-        file_results = ident_map.get(ident_lower, [])  # O(1) lookup
+        file_results = list(ident_map.get(ident_lower, {}).values())
         file_results.sort(key=lambda r: r["file"])
         results.append({
             "identifier": identifier,

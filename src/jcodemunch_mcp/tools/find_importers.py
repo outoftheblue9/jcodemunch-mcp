@@ -99,14 +99,20 @@ def _find_importers_batch(
 
     source_files = frozenset(index.source_files)
 
-    # Build reverse map once: file_path -> list of importer entries  O(M)
-    import_map: dict[str, list[dict]] = {}
+    # Pass 1: build files_that_are_imported (needed for has_importers annotation)
     files_that_are_imported: set[str] = set()
     for src_file, file_imports in index.imports.items():
         for imp in file_imports:
             resolved = resolve_specifier(imp["specifier"], src_file, source_files)
             if resolved:
                 files_that_are_imported.add(resolved)
+
+    # Pass 2: build import_map using the complete set
+    import_map: dict[str, list[dict]] = {}
+    for src_file, file_imports in index.imports.items():
+        for imp in file_imports:
+            resolved = resolve_specifier(imp["specifier"], src_file, source_files)
+            if resolved:
                 import_map.setdefault(resolved, []).append({
                     "file": src_file,
                     "specifier": imp["specifier"],
