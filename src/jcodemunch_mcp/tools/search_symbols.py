@@ -185,13 +185,6 @@ def search_symbols(
     if not index:
         return {"error": f"Repository not indexed: {owner}/{name}"}
 
-    # Fetch all candidates so BM25 can re-rank freely (pre-filter still rejects score==0)
-    results = index.search(query, kind=kind, file_pattern=file_pattern, limit=0)
-
-    # Apply language filter (post-search since CodeIndex.search doesn't support it)
-    if language:
-        results = [s for s in results if s.get("language") == language]
-
     # BM25 corpus stats — cached on CodeIndex, computed once per index load
     query_terms = _tokenize(query) or [query.lower()]
     cache = index._bm25_cache
@@ -202,10 +195,32 @@ def search_symbols(
     avgdl = cache["avgdl"]
     centrality = cache["centrality"]
 
-    candidates_scored = len(results)
-    scored_results = []
-    for sym in results:
+    # Single-pass BM25 scoring directly over index.symbols
+    # (replaces the two-pass heuristic pre-filter + BM25 re-rank)
+    import heapq
+
+    effective_limit = max_results if token_budget is None else len(index.symbols)
+    heap: list[tuple[float, int, dict]] = []  # (score, counter, entry)
+    counter = 0
+    candidates_scored = 0
+
+    for sym in index.symbols:
+        # Apply kind/file_pattern/language filters
+        if kind and sym.get("kind") != kind:
+            continue
+        if file_pattern:
+            from fnmatch import fnmatch
+            if not fnmatch(sym.get("file", ""), file_pattern):
+                continue
+        if language and sym.get("language") != language:
+            continue
+
         score = _bm25_score(sym, query_terms, idf, avgdl, centrality)
+        if score <= 0:
+            continue
+
+        candidates_scored += 1
+
         if detail_level == "compact":
             entry = {
                 "id": sym["id"],
@@ -230,10 +245,20 @@ def search_symbols(
             }
         if debug:
             entry["score_breakdown"] = _bm25_breakdown(sym, query_terms, idf, avgdl)
-        scored_results.append(entry)
 
-    # Sort by BM25 score descending; then apply budget or max_results cap
-    scored_results.sort(key=lambda x: x["score"], reverse=True)
+        counter += 1
+        if token_budget is not None:
+            # Token budget mode: keep all candidates, pack later
+            heapq.heappush(heap, (score, counter, entry))
+        else:
+            # Fixed max_results: bounded heap
+            if len(heap) < effective_limit:
+                heapq.heappush(heap, (score, counter, entry))
+            elif score > heap[0][0]:
+                heapq.heapreplace(heap, (score, counter, entry))
+
+    # Extract results sorted by score descending
+    scored_results = [entry for _, _, entry in sorted(heap, key=lambda x: x[0], reverse=True)]
 
     if token_budget is not None:
         budget_bytes = token_budget * BYTES_PER_TOKEN
@@ -244,8 +269,6 @@ def search_symbols(
                 packed.append(entry)
                 used_bytes += b
         scored_results = packed
-    else:
-        scored_results = scored_results[:max_results]
 
     # Full detail: inline source, docstring, end_line for each result
     if detail_level == "full":
@@ -262,15 +285,15 @@ def search_symbols(
     seen_files: set = set()
     response_bytes = 0
     content_dir = store._content_dir(owner, name)
-    for sym in results[:max_results]:
-        f = sym["file"]
+    for entry in scored_results:
+        f = entry["file"]
         if f not in seen_files:
             seen_files.add(f)
             try:
                 raw_bytes += os.path.getsize(content_dir / f)
             except OSError:
                 pass
-        response_bytes += sym.get("byte_length", 0)
+        response_bytes += entry["byte_length"]
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
 
@@ -279,7 +302,7 @@ def search_symbols(
     meta = {
         "timing_ms": round(elapsed, 1),
         "total_symbols": len(index.symbols),
-        "truncated": len(results) > max_results,
+        "truncated": candidates_scored > len(scored_results),
         "tokens_saved": tokens_saved,
         "total_tokens_saved": total_saved,
         **cost_avoided(tokens_saved, total_saved),
