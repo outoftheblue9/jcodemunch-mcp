@@ -384,12 +384,22 @@ async def test_call_tool_uses_our_schema_cache_not_sdk():
 
 
 @pytest.mark.asyncio
-async def test_suppress_meta_removes_meta_envelope():
-    """suppress_meta=True strips the _meta key from the response."""
-    with patch("jcodemunch_mcp.server.list_repos", return_value={"repos": []}):
-        result = await call_tool("list_repos", {"suppress_meta": True})
-    payload = json.loads(result[0].text)
-    assert "_meta" not in payload
+async def test_meta_fields_empty_removes_meta_envelope():
+    """meta_fields=[] strips the _meta key from the response."""
+    from jcodemunch_mcp import config as config_module
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+
+    try:
+        config_module._GLOBAL_CONFIG["meta_fields"] = []
+        with patch("jcodemunch_mcp.server.list_repos", return_value={"repos": []}):
+            result = await call_tool("list_repos", {})
+        payload = json.loads(result[0].text)
+        assert "_meta" not in payload
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
 
 
 @pytest.mark.asyncio
@@ -491,19 +501,28 @@ async def test_disabled_tools_empty_all_tools_present(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_suppress_meta_false_keeps_meta_envelope():
-    """suppress_meta=False (or absent) keeps the _meta envelope."""
-    with patch("jcodemunch_mcp.server.list_repos", return_value={"repos": []}):
-        result = await call_tool("list_repos", {})
-    payload = json.loads(result[0].text)
-    assert "_meta" in payload
+async def test_meta_fields_null_keeps_meta_envelope():
+    """meta_fields=null keeps the _meta envelope."""
+    from jcodemunch_mcp import config as config_module
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+
+    try:
+        config_module._GLOBAL_CONFIG["meta_fields"] = None
+        with patch("jcodemunch_mcp.server.list_repos", return_value={"repos": []}):
+            result = await call_tool("list_repos", {})
+        payload = json.loads(result[0].text)
+        assert "_meta" in payload
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
 
 
 @pytest.mark.asyncio
-async def test_list_tools_all_have_suppress_meta():
-    """Every tool schema exposes suppress_meta as an optional boolean property."""
+async def test_list_tools_no_suppress_meta_param():
+    """No tool schema exposes suppress_meta (replaced by meta_fields config)."""
     tools = await list_tools()
     for tool in tools:
         props = (tool.inputSchema or {}).get("properties", {})
-        assert "suppress_meta" in props, f"{tool.name} missing suppress_meta"
-        assert props["suppress_meta"]["type"] == "boolean"
+        assert "suppress_meta" not in props, f"{tool.name} should not have suppress_meta"

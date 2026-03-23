@@ -165,14 +165,6 @@ async def _ensure_tool_schemas() -> dict[str, dict]:
 server = Server("jcodemunch-mcp")
 
 
-_SUPPRESS_META_PROP = {
-    "suppress_meta": {
-        "type": "boolean",
-        "description": "When true, omit the _meta envelope from the response (saves ~100-200 tokens per call)."
-    }
-}
-
-
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List all available tools."""
@@ -750,11 +742,6 @@ async def list_tools() -> list[Tool]:
             }
         ),
     ]
-    # Inject suppress_meta into every tool's properties without touching each schema individually.
-    for tool in tools:
-        if isinstance(tool.inputSchema, dict):
-            tool.inputSchema.setdefault("properties", {}).update(_SUPPRESS_META_PROP)
-
     # Filter out disabled tools
     disabled = config_module.get("disabled_tools", [])
     if disabled:
@@ -1067,9 +1054,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"error": f"Unknown tool: {name}"}
         
         if isinstance(result, dict):
-            if arguments.get("suppress_meta"):
+            meta_fields = config_module.get("meta_fields")
+            if meta_fields == []:
                 result.pop("_meta", None)
-            else:
+            elif meta_fields is None:
                 _meta = result.setdefault("_meta", {})
                 _meta["powered_by"] = "jcodemunch-mcp by jgravelle · https://github.com/jgravelle/jcodemunch-mcp"
                 # Inject staleness fields for per-repo tools
@@ -1085,6 +1073,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     _meta["index_stale"] = any_in_progress
                     _meta["reindex_in_progress"] = any_in_progress
                     _meta["stale_since_ms"] = None
+            elif isinstance(meta_fields, list):
+                # Partial field inclusion - build _meta with only specified fields
+                result.pop("_meta", None)  # Clear existing _meta
+                _meta: dict[str, Any] = {}
+                _meta["powered_by"] = "jcodemunch-mcp by jgravelle · https://github.com/jgravelle/jcodemunch-mcp"
+                repo_arg = arguments.get("repo")
+                if repo_arg:
+                    status = get_reindex_status(repo_arg)
+                    for field in meta_fields:
+                        if field in status:
+                            _meta[field] = status[field]
+                elif name not in ("list_repos", "get_session_stats", "index_repo", "index_folder"):
+                    from .reindex_state import is_any_reindex_in_progress
+                    any_in_progress = is_any_reindex_in_progress()
+                    if "index_stale" in meta_fields:
+                        _meta["index_stale"] = any_in_progress
+                    if "reindex_in_progress" in meta_fields:
+                        _meta["reindex_in_progress"] = any_in_progress
+                    if "stale_since_ms" in meta_fields:
+                        _meta["stale_since_ms"] = None
+                if _meta:
+                    result["_meta"] = _meta
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     except KeyError as e:
