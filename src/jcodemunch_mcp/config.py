@@ -186,3 +186,17 @@ def load_project_config(source_root: str) -> None:
             _PROJECT_CONFIGS[repo_key] = _GLOBAL_CONFIG.copy()
     else:
         _PROJECT_CONFIGS[repo_key] = _GLOBAL_CONFIG.copy()
+
+
+def is_tool_disabled(tool_name: str, repo: str | None = None) -> bool:
+    """Check if a tool is in disabled_tools."""
+    disabled = get("disabled_tools", [], repo=repo)
+    return tool_name in disabled
+
+
+def is_language_enabled(language: str, repo: str | None = None) -> bool:
+    """Check if a language is in the languages list."""
+    languages = get("languages", None, repo=repo)
+    if languages is None:  # None = all enabled
+        return True
+    return language in languages

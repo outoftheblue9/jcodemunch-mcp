@@ -164,3 +164,53 @@ class TestProjectConfig:
             assert get("max_folder_files", repo=repo_key) == 5000
             # Non-overridden values should come from global
             assert get("use_ai_summaries", repo=repo_key) is True
+
+
+class TestConfigGetters:
+    """Test config getter functions."""
+
+    def test_is_tool_disabled(self):
+        """Should return True if tool is in disabled_tools."""
+        from src.jcodemunch_mcp.config import (
+            load_config, is_tool_disabled, _GLOBAL_CONFIG
+        )
+
+        _GLOBAL_CONFIG.clear()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.jsonc"
+            config_path.write_text('{"disabled_tools": ["index_repo", "search_columns"]}')
+
+            load_config(tmpdir)
+
+            assert is_tool_disabled("index_repo") is True
+            assert is_tool_disabled("search_columns") is True
+            assert is_tool_disabled("get_file_tree") is False
+
+    def test_is_language_enabled_all_enabled(self):
+        """Should return True for all languages when languages is None."""
+        from src.jcodemunch_mcp.config import (
+            load_config, is_language_enabled, _GLOBAL_CONFIG, DEFAULTS
+        )
+
+        _GLOBAL_CONFIG.clear()
+        _GLOBAL_CONFIG.update(DEFAULTS)  # languages = None
+
+        assert is_language_enabled("python") is True
+        assert is_language_enabled("sql") is True
+
+    def test_is_language_enabled_filtered(self):
+        """Should return False for disabled languages."""
+        from src.jcodemunch_mcp.config import load_config, is_language_enabled, _GLOBAL_CONFIG
+
+        _GLOBAL_CONFIG.clear()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.jsonc"
+            config_path.write_text('{"languages": ["python", "javascript"]}')
+
+            load_config(tmpdir)
+
+            assert is_language_enabled("python") is True
+            assert is_language_enabled("javascript") is True
+            assert is_language_enabled("sql") is False
