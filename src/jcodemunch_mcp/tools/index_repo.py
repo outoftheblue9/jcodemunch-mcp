@@ -25,7 +25,7 @@ from ._indexing_pipeline import (
 )
 
 
-_SLUG_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+_SLUG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 _ALLOWED_GITHUB_HOSTS = {"github.com"}
 
 

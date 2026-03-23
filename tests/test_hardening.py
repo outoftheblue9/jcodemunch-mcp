@@ -983,3 +983,104 @@ class TestNewTools:
 
         result = invalidate_cache(repo="shared", storage_path=storage)
         assert result["error"].startswith("Ambiguous repository name: shared")
+
+
+# ---------------------------------------------------------------------------
+# S4 — Timing-safe bearer token comparison (T1)
+# ---------------------------------------------------------------------------
+
+class TestBearerAuthTimingSafe:
+    """T1: BearerAuthMiddleware must use hmac.compare_digest, never plain ==."""
+
+    def test_hmac_compare_digest_called_on_valid_token(self):
+        """hmac.compare_digest is invoked for every auth check (not string ==)."""
+        import hmac
+        from unittest.mock import patch, AsyncMock, MagicMock
+        import os
+
+        with patch.dict(os.environ, {"JCODEMUNCH_HTTP_TOKEN": "secret"}):
+            from jcodemunch_mcp.server import _make_auth_middleware
+            middleware_wrapper = _make_auth_middleware()
+
+        assert middleware_wrapper is not None
+
+        # Instantiate the middleware class and verify compare_digest is used
+        middleware_cls = middleware_wrapper.cls
+        instance = middleware_cls(app=MagicMock())
+
+        request = MagicMock()
+        request.headers.get.return_value = "Bearer secret"
+        call_next = AsyncMock(return_value=MagicMock())
+
+        with patch("hmac.compare_digest", wraps=hmac.compare_digest) as mock_cd:
+            import asyncio
+            asyncio.get_event_loop().run_until_complete(
+                instance.dispatch(request, call_next)
+            )
+            mock_cd.assert_called_once()
+
+    def test_wrong_token_returns_401(self):
+        """A mismatched token yields a 401 response, not a 200."""
+        import os
+        from unittest.mock import MagicMock, AsyncMock, patch
+        from starlette.responses import JSONResponse
+
+        with patch.dict(os.environ, {"JCODEMUNCH_HTTP_TOKEN": "correct"}):
+            from jcodemunch_mcp.server import _make_auth_middleware
+            middleware_wrapper = _make_auth_middleware()
+
+        middleware_cls = middleware_wrapper.cls
+        instance = middleware_cls(app=MagicMock())
+
+        request = MagicMock()
+        request.headers.get.return_value = "Bearer wrong"
+        call_next = AsyncMock()
+
+        import asyncio
+        response = asyncio.get_event_loop().run_until_complete(
+            instance.dispatch(request, call_next)
+        )
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 401
+        call_next.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# S1 — GitHub URL hostname validation (T2)
+# ---------------------------------------------------------------------------
+
+class TestParseGithubUrlSecurity:
+    """T2: parse_github_url must reject non-github.com hostnames (SSRF guard)."""
+
+    @pytest.mark.parametrize("bad_url", [
+        "https://evil.com/owner/repo",
+        "https://192.168.1.1/owner/repo",
+        "https://github.com.evil.com/owner/repo",
+        "file:///etc/passwd",
+        "http://localhost/owner/repo",
+        "https://github.internal.corp.com/owner/repo",
+    ])
+    def test_rejects_non_github_hosts(self, bad_url):
+        from jcodemunch_mcp.tools.index_repo import parse_github_url
+        with pytest.raises(ValueError, match="Unsupported host"):
+            parse_github_url(bad_url)
+
+    @pytest.mark.parametrize("good_url,expected", [
+        ("jgravelle/jcodemunch-mcp", ("jgravelle", "jcodemunch-mcp")),
+        ("https://github.com/jgravelle/jcodemunch-mcp", ("jgravelle", "jcodemunch-mcp")),
+        ("https://github.com/jgravelle/jcodemunch-mcp.git", ("jgravelle", "jcodemunch-mcp")),
+        ("owner/repo-name.with_dots", ("owner", "repo-name.with_dots")),
+    ])
+    def test_accepts_valid_github_urls(self, good_url, expected):
+        from jcodemunch_mcp.tools.index_repo import parse_github_url
+        assert parse_github_url(good_url) == expected
+
+    @pytest.mark.parametrize("bad_slug", [
+        "owner/repo;rm -rf /",
+        "../../../etc/owner/repo",
+        "owner/repo\x00evil",
+    ])
+    def test_rejects_invalid_slugs(self, bad_slug):
+        from jcodemunch_mcp.tools.index_repo import parse_github_url
+        with pytest.raises(ValueError):
+            parse_github_url(bad_slug)
