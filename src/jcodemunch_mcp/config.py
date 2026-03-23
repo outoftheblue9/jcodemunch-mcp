@@ -223,6 +223,11 @@ def is_language_enabled(language: str, repo: str | None = None) -> bool:
     return language in languages
 
 
+def get_descriptions() -> dict:
+    """Get the nested descriptions dict."""
+    return _GLOBAL_CONFIG.get("descriptions", {})
+
+
 # Lazy import to avoid circular dependency
 def generate_template() -> str:
     """Return default config.jsonc content."""

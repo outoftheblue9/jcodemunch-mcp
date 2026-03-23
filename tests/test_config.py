@@ -253,3 +253,39 @@ class TestTemplateGeneration:
         # All registry languages should be in template
         for lang in LANGUAGE_REGISTRY.keys():
             assert lang in parsed["languages"]
+
+
+class TestGetDescriptions:
+    """Test get_descriptions() function."""
+
+    def test_returns_descriptions_dict(self):
+        """Should return descriptions dict from config."""
+        from src.jcodemunch_mcp.config import load_config, get_descriptions, _GLOBAL_CONFIG
+
+        _GLOBAL_CONFIG.clear()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.jsonc"
+            config_path.write_text('''{
+                "descriptions": {
+                    "search_symbols": {"_tool": "custom"},
+                    "_shared": {"repo": "shared desc"}
+                }
+            }''')
+
+            load_config(tmpdir)
+
+            result = get_descriptions()
+            assert isinstance(result, dict)
+            assert "search_symbols" in result
+            assert "_shared" in result
+
+    def test_returns_empty_dict_when_absent(self):
+        """Should return empty dict when descriptions key absent."""
+        from src.jcodemunch_mcp.config import load_config, get_descriptions, _GLOBAL_CONFIG, DEFAULTS
+
+        _GLOBAL_CONFIG.clear()
+        _GLOBAL_CONFIG.update(DEFAULTS)  # descriptions = {}
+
+        result = get_descriptions()
+        assert result == {}
