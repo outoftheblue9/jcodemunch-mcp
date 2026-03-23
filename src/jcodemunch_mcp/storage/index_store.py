@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..parser.symbols import Symbol
+from ..path_map import parse_path_map, remap
 from .sqlite_store import SQLiteIndexStore
 
 logger = logging.getLogger(__name__)
@@ -641,7 +642,7 @@ class IndexStore:
             if os.environ.get("JCODEMUNCH_REDACT_SOURCE_ROOT", "") == "1":
                 repo_entry["source_root"] = data.get("display_name", "") or ""
             else:
-                repo_entry["source_root"] = data["source_root"]
+                repo_entry["source_root"] = remap(data["source_root"], parse_path_map())
         return repo_entry
 
     def list_repos(self) -> list[dict]:

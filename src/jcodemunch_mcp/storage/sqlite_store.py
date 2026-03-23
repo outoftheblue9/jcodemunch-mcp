@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, cast
 
 from ..parser.symbols import Symbol
+from ..path_map import parse_path_map, remap
 
 if TYPE_CHECKING:
     from .index_store import CodeIndex
@@ -850,7 +851,7 @@ class SQLiteIndexStore:
             "index_version": int(meta.get("index_version", "0")),
             "git_head": meta.get("git_head", ""),
             "display_name": meta.get("display_name", ""),
-            "source_root": meta.get("source_root", ""),
+            "source_root": remap(meta.get("source_root", ""), parse_path_map()),
         }
 
     def delete_index(self, owner: str, name: str) -> bool:

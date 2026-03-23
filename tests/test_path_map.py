@@ -114,3 +114,57 @@ def test_remap_does_not_match_across_directory_boundary():
     pairs = [("/home/user", "/mnt/user")]
     result = remap("/home/username/file.py", pairs)
     assert result.replace("\\", "/") == "/home/username/file.py"
+
+
+from pathlib import Path
+from jcodemunch_mcp.tools.index_folder import index_folder
+from jcodemunch_mcp.tools.list_repos import list_repos
+
+
+def test_list_repos_source_root_remapped(tmp_path, monkeypatch):
+    """source_root in list_repos response uses the remapped prefix."""
+    # Create a minimal source file so index_folder has something to index
+    (tmp_path / "hello.py").write_text("def hello(): pass\n")
+
+    # Index the folder with AI summaries disabled
+    monkeypatch.setenv("JCODEMUNCH_USE_AI_SUMMARIES", "false")
+    storage = str(tmp_path / ".index")
+    result = index_folder(
+        path=str(tmp_path),
+        storage_path=storage,
+        use_ai_summaries=False,
+    )
+    assert result.get("success"), result
+
+    # Set up a remap: tmp_path prefix → /remapped/prefix
+    orig_prefix = str(tmp_path)
+    new_prefix = "/remapped/prefix"
+    monkeypatch.setenv(ENV_VAR, f"{orig_prefix}={new_prefix}")
+
+    repos = list_repos(storage_path=storage)
+    assert repos["count"] == 1
+    source_root = repos["repos"][0]["source_root"]
+    assert source_root.replace("\\", "/").startswith("/remapped/prefix"), (
+        f"Expected remapped prefix, got: {source_root}"
+    )
+
+
+def test_repo_entry_from_data_source_root_remapped(monkeypatch):
+    """_repo_entry_from_data remaps source_root (legacy JSON index path)."""
+    from jcodemunch_mcp.storage.index_store import IndexStore
+
+    monkeypatch.setenv(ENV_VAR, "/old/root=/new/root")
+    store = IndexStore()
+
+    data = {
+        "repo": "local/myproject-abc12345",
+        "indexed_at": "2026-01-01T00:00:00",
+        "symbol_count": 10,
+        "file_count": 5,
+        "languages": {"python": 5},
+        "index_version": 5,
+        "source_root": "/old/root/myproject",
+    }
+    entry = store._repo_entry_from_data(data)
+    assert entry is not None
+    assert entry["source_root"].replace("\\", "/") == "/new/root/myproject"
