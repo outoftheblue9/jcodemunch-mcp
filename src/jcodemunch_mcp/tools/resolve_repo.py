@@ -28,6 +28,7 @@ def _git_toplevel(path: Path) -> Optional[Path]:
             text=True,
             cwd=str(path),
             timeout=5,
+            stdin=subprocess.DEVNULL,
         )
         if result.returncode == 0:
             return Path(result.stdout.strip())
