@@ -400,6 +400,89 @@ class TestResolveSpecifier:
         from jcodemunch_mcp.parser.imports import _load_tsconfig_aliases
         assert _load_tsconfig_aliases("") == {}
 
+    def test_load_tsconfig_aliases_jsonc(self):
+        """_load_tsconfig_aliases parses JSONC (tsconfig with // and /* */ comments)."""
+        import tempfile
+        from pathlib import Path
+        from jcodemunch_mcp.parser.imports import _load_tsconfig_aliases, _alias_map_cache
+
+        tsconfig_jsonc = '''{
+  // TypeScript configuration for Next.js
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "baseUrl": ".",
+    /* path aliases */
+    "paths": {
+      "@/*": ["./*"],
+      "@/lib/*": ["app/lib/*"]
+    }
+  }
+}'''
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "tsconfig.json").write_text(tsconfig_jsonc)
+            _alias_map_cache.pop(tmp, None)
+            result = _load_tsconfig_aliases(tmp)
+        assert "@/*" in result, "JSONC tsconfig should parse correctly despite comments"
+        assert result["@/*"] == ["/*"]
+        assert result["@/lib/*"] == ["app/lib/*"]
+
+    def test_at_alias_nested_layout(self):
+        """'@/lib/utils' resolves correctly when source is nested (app/lib/) with specific override."""
+        # Project A scenario: @/* -> ./* (root) but @/lib/* -> app/lib/*
+        # File lives at app/lib/utils.ts, specifier is @/lib/utils
+        files = frozenset(["app/lib/utils.ts", "app/components/Widget.tsx"])
+        alias_map = {"@/*": ["/*"], "@/lib/*": ["app/lib/*"]}
+        result = resolve_specifier("@/lib/utils", "app/components/Widget.tsx", files, alias_map)
+        assert result == "app/lib/utils.ts", (
+            "Specific @/lib/* override must take precedence and resolve to app/lib/utils.ts"
+        )
+
+    def test_find_importers_jsonc_tsconfig_nested_layout(self, tmp_path):
+        """find_importers resolves @/* aliases when tsconfig.json uses JSONC comments (issue #170)."""
+        import json
+        from jcodemunch_mcp.tools.index_folder import index_folder
+        from jcodemunch_mcp.tools.find_importers import find_importers
+        from jcodemunch_mcp.parser.imports import _alias_map_cache
+
+        src = tmp_path / "src"
+        store = tmp_path / "store"
+
+        # Project A layout: source files nested under app/
+        _write(src / "app" / "lib" / "utils.ts", "export function cn() {}\n")
+        _write(src / "app" / "components" / "Widget.tsx",
+               "import { cn } from '@/lib/utils';\nexport function Widget() {}\n")
+        _write(src / "app" / "components" / "Header.tsx",
+               "import { cn } from '@/lib/utils';\nexport function Header() {}\n")
+
+        # JSONC tsconfig with comments and specific @/lib/* override
+        tsconfig_jsonc = '''{
+  // Next.js TypeScript config
+  "compilerOptions": {
+    "baseUrl": ".",
+    /* aliases */
+    "paths": {
+      "@/*": ["./*"],
+      "@/lib/*": ["app/lib/*"]
+    }
+  }
+}'''
+        (src / "tsconfig.json").write_text(tsconfig_jsonc)
+
+        _alias_map_cache.pop(str(src), None)
+        result = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
+        assert result["success"] is True
+
+        importers = find_importers(
+            repo=result["repo"],
+            file_path="app/lib/utils.ts",
+            storage_path=str(store),
+        )
+        files = [r["file"] for r in importers.get("importers", [])]
+        assert "app/components/Widget.tsx" in files, (
+            "find_importers must find @/lib/utils importers when tsconfig.json uses JSONC comments"
+        )
+        assert "app/components/Header.tsx" in files
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: find_importers + find_references via index_folder

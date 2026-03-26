@@ -1,7 +1,7 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.11.4 (published to PyPI)
+- **Version:** 1.11.5 (published to PyPI)
 - **INDEX_VERSION:** 6
 - **Tests:** 1119 passed, 7 skipped
 - **Python:** >=3.10
@@ -216,6 +216,7 @@ Custom parsers (tree-sitter grammar lacks clean named fields):
 | 1.11.2 | (pre-bumped, no new content shipped) |
 | 1.11.3 | Fix: debug logging for all three silent skip paths (skip_dir, skip_file, secret) + skip_dir/skip_file counters in discovery summary; add exclude_secret_patterns config option to suppress specific SECRET_PATTERNS entries (workaround for *secret* glob false-positives on full relative paths in Go monorepos); 6 new tests — contributed by DrHayt (PR #168) |
 | 1.11.4 | Fix: import-graph tools (find_importers, get_blast_radius, get_dependency_graph, and 5 others) now resolve TypeScript/SvelteKit path aliases (@/*, $lib/*) by reading compilerOptions.paths from tsconfig.json/jsconfig.json at the project root; also resolves TypeScript ESM .js→.ts extension convention; alias_map auto-loaded from source_root and module-level cached; 10 new tests — closes #169 |
+| 1.11.5 | Fix: tsconfig.json/jsconfig.json are now parsed as JSONC (strips // and /* */ comments and trailing commas) — previously json.loads() silently failed on commented tsconfigs, leaving alias_map empty and causing find_importers/get_blast_radius to return 0 alias-based results; also adds test for nested layout with specific @/lib/* overrides; 5 new tests — closes #170 |
 
 ## Maintenance Practices
 

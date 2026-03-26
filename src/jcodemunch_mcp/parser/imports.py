@@ -447,25 +447,27 @@ def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
             if normalized:
                 alias_map[pattern] = normalized
 
+    def _load_json(path: Path) -> dict:
+        """Read a tsconfig/jsconfig file as plain JSON or JSONC (comments + trailing commas)."""
+        try:
+            from ..config import _strip_jsonc
+            return json.loads(_strip_jsonc(path.read_text("utf-8", errors="replace")))
+        except Exception:
+            return {}
+
     # Root tsconfig.json / jsconfig.json (tsconfig.json takes priority)
     for cfg_name in ("tsconfig.json", "jsconfig.json"):
         cfg_path = root / cfg_name
         if cfg_path.is_file():
-            try:
-                data = json.loads(cfg_path.read_text("utf-8", errors="replace"))
-                _ingest(data.get("compilerOptions", {}).get("paths", {}))
-            except Exception:
-                pass
+            data = _load_json(cfg_path)
+            _ingest(data.get("compilerOptions", {}).get("paths", {}))
             break
 
     # SvelteKit: .svelte-kit/tsconfig.json (auto-generated; paths are relative to .svelte-kit/)
     svelte_cfg = root / ".svelte-kit" / "tsconfig.json"
     if svelte_cfg.is_file():
-        try:
-            data = json.loads(svelte_cfg.read_text("utf-8", errors="replace"))
-            _ingest(data.get("compilerOptions", {}).get("paths", {}), tsconfig_dir_rel=".svelte-kit")
-        except Exception:
-            pass
+        data = _load_json(svelte_cfg)
+        _ingest(data.get("compilerOptions", {}).get("paths", {}), tsconfig_dir_rel=".svelte-kit")
 
     _alias_map_cache[source_root] = alias_map
     return alias_map
