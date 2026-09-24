@@ -456,23 +456,9 @@ class TestTemplateGeneration:
         stripped = _strip_jsonc(template)
         parsed = json.loads(stripped)
 
-        assert "languages" in parsed
+        assert "languages" not in parsed
         assert "disabled_tools" in parsed
         assert "meta_fields" in parsed
-
-    def test_template_languages_synced_from_registry(self):
-        """Should include all languages from LANGUAGE_REGISTRY as active entries."""
-        from jcodemunch_mcp.config import generate_template
-        from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
-        from jcodemunch_mcp.config import _strip_jsonc
-        import json
-
-        template = generate_template()
-        parsed = json.loads(_strip_jsonc(template))
-
-        # All registry languages should be present and active (not commented out)
-        for lang in LANGUAGE_REGISTRY.keys():
-            assert lang in parsed["languages"], f"Language '{lang}' not found in parsed template"
 
     def test_template_all_tools_matches_canonical(self):
         """all_tools in generate_template must include every canonical tool."""
@@ -2388,7 +2374,8 @@ class TestConfigInit:
         from jcodemunch_mcp.config import _strip_jsonc
         stripped = _strip_jsonc(content)
         parsed = json.loads(stripped)
-        assert "languages" in parsed
+        assert "languages" not in parsed
+        assert "disabled_tools" in parsed
 
     def test_config_init_refuses_overwrite(self, tmp_path, monkeypatch, capsys):
         """config --init should refuse to overwrite existing file."""

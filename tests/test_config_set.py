@@ -29,7 +29,7 @@ def _read(p):
     ("path_map", "/old=/new", "/old=/new"),                  # str key, bare string
     ("extra_extensions", '{".mpl":"cpp"}', {".mpl": "cpp"}),   # dict
     ("trusted_folders", '["/srv/a","/srv/b"]', ["/srv/a", "/srv/b"]),  # list
-    ("languages", '["python","go"]', ["python", "go"]),        # active multi-line array
+    ("languages", '["python","go"]', ["python", "go"]),        # commented one-line example
     ("meta_fields", "null", None),                             # (list, None) -> null
     ("use_ai_summaries", "auto", "auto"),                      # (bool, str) -> str
     ("use_ai_summaries", "false", False),                      # (bool, str) -> bool wins
@@ -101,11 +101,12 @@ def test_set_creates_file_from_template_when_absent(tmp_path):
 
 
 def test_scan_value_end_handles_embedded_comments(tmp_path):
-    # languages/meta_fields arrays carry `// "field",` comment lines inside the
+    # the meta_fields array carries `// "field",` comment lines inside the
     # brackets; the scanner must span to the real closing bracket.
     p = _seed(tmp_path)
-    c.set_config_value("languages", '["rust"]', storage_path=str(tmp_path))
+    assert '  // "timing_ms",\n' in p.read_text(encoding="utf-8")
+    c.set_config_value("meta_fields", '["timing_ms"]', storage_path=str(tmp_path))
     # the replacement must not have left a dangling bracket or duplicate key
     text = p.read_text(encoding="utf-8")
-    assert text.count('"languages":') == 1
-    assert _read(p)["languages"] == ["rust"]
+    assert text.count('"meta_fields":') == 1
+    assert _read(p)["meta_fields"] == ["timing_ms"]

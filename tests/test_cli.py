@@ -27,7 +27,7 @@ def test_config_init_creates_template(monkeypatch, tmp_path, capsys):
     import json
     stripped = _strip_jsonc(content)
     parsed = json.loads(stripped)  # Should not raise
-    assert "languages" in parsed
+    assert "languages" not in parsed
     assert "disabled_tools" in parsed
 
 
@@ -99,7 +99,7 @@ def test_config_upgrade_adds_missing_keys(monkeypatch, tmp_path, capsys):
     import json
     content = config_path.read_text(encoding="utf-8")
     parsed = json.loads(_strip_jsonc(content))
-    assert "languages" in parsed
+    assert "languages" not in parsed
     assert "disabled_tools" in parsed
 
 

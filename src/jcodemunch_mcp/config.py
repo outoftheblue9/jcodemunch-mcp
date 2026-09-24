@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import threading
 import time
 from copy import deepcopy
@@ -172,14 +171,46 @@ def _fresh_config_content(storage_dir: "Path") -> str:
     return template
 
 
-_LANG_BLOCK_RE = re.compile(
-    r'("languages"\s*:\s*)(\[.*?\]|null)',
-    re.DOTALL
-)
-# NOTE: The non-greedy \[.*?\] pattern will break if a ] character appears
-# inside a comment within the languages block (e.g., // see note [1]).
-# This cannot happen with auto-generated content but is a limitation for
-# hand-edited configs containing such patterns.
+def _walk_top_level(content: str):
+    """Walk the top-level JSONC object with the comment- and string-aware scanners.
+
+    Returns ("languages", (key_start, value_start, value_end)) when the key is
+    present, ("end", (close_brace, last_value_end, has_trailing_comma)) when it
+    is not, or None when the object cannot be walked.
+    """
+    n = len(content)
+    i = _skip_ws_and_comments(content, 1 if content.startswith("﻿") else 0)
+    if i >= n or content[i] != "{":
+        return None
+    i += 1
+    last_end, trailing_comma = None, False
+    while True:
+        i = _skip_ws_and_comments(content, i)
+        if i < n and content[i] == "}":
+            return "end", (i, last_end, trailing_comma)
+        if i >= n or content[i] != '"':
+            return None
+        key_end = _scan_jsonc_value_end(content, i)
+        colon = _skip_ws_and_comments(content, key_end)
+        if colon >= n or content[colon] != ":":
+            return None
+        value_start = _skip_ws_and_comments(content, colon + 1)
+        value_end = _scan_jsonc_value_end(content, value_start)
+        if content[i + 1:key_end - 1] == "languages":
+            return "languages", (i, value_start, value_end)
+        last_end, trailing_comma = value_end, False
+        i = _skip_ws_and_comments(content, value_end)
+        if i < n and content[i] == ",":
+            trailing_comma = True
+            i += 1
+        elif i >= n or content[i] != "}":
+            return None
+
+
+def _find_active_lang_block(content: str) -> tuple[int, int, int] | None:
+    """(key_start, value_start, value_end) of the top-level `languages` member."""
+    walked = _walk_top_level(content)
+    return walked[1] if walked and walked[0] == "languages" else None
 
 
 def _parse_active_languages(content: str) -> set[str] | None:
@@ -189,22 +220,18 @@ def _parse_active_languages(content: str) -> set[str] | None:
         set of active language names, or
         None if the languages key is null or absent (meaning "all languages").
     """
-    m = _LANG_BLOCK_RE.search(content)
-    if not m:
+    span = _find_active_lang_block(content)
+    if not span:
         return None
-    block = m.group(2)
-    if block.strip() == "null":
+    block = content[span[1]:span[2]]
+    if not block.startswith("["):
         return None
-    active = set()
-    for line in block.splitlines():
-        # Strip inline // comments before matching (handle "python", // comment style)
-        code_part = line.split("//")[0]
-        code_stripped = code_part.strip()
-        if code_stripped.startswith("//"):
-            continue
-        for lang_m in re.finditer(r'"([a-z_+#]+)"', code_stripped):
-            active.add(lang_m.group(1))
-    return active
+    try:
+        values = json.loads(_strip_jsonc(block))
+    except ValueError:
+        logger.debug("Unparseable languages array", exc_info=True)
+        return None
+    return {v for v in values if isinstance(v, str)}
 
 
 def _build_languages_block(detected: set[str]) -> str:
@@ -251,12 +278,7 @@ def _check_raw_local_adaptive(local_path: Path) -> tuple[bool, str]:
 def _apply_languages_adaptation(content: str, detected: set[str]) -> str | None:
     """Apply language adaptation to content, replacing the languages block.
 
-    Returns the adapted content, or None if no languages block exists to adapt.
-
-    Note: The regex uses non-greedy matching which may break if a ] character
-    appears inside a comment within the languages block (e.g., // see note [1]).
-    This cannot happen with auto-generated content but is a limitation for
-    hand-edited configs.
+    Returns the adapted content, or None if no change is needed.
     """
     active = _parse_active_languages(content)
     # active is None when languages key is null/absent → always update (convert to array)
@@ -264,13 +286,31 @@ def _apply_languages_adaptation(content: str, detected: set[str]) -> str | None:
         return None  # no change needed
 
     new_block = _build_languages_block(detected)
-    m = _LANG_BLOCK_RE.search(content)
-    if not m:
-        logger.debug("No languages block found — cannot apply adaptation")
-        return None
 
-    new_content = content[:m.start()] + new_block + content[m.end():]
-    return new_content
+    walked = _walk_top_level(content)
+    if walked is None:
+        logger.debug("Config object cannot be walked — cannot apply adaptation")
+        return None
+    kind, pos = walked
+    if kind == "languages":
+        new = content[:pos[0]] + new_block + content[pos[2]:]
+    else:
+        # No active block (the template ships none): insert one before the
+        # object's own closing brace, with the comma right after the last value.
+        close, last_end, trailing_comma = pos
+        head, tail = content[:close], content[close:]
+        if last_end is not None and not trailing_comma:
+            head = head[:last_end] + "," + head[last_end:]
+        if not head.endswith("\n"):
+            head += "\n"
+        new = head + f"  {new_block}\n" + tail
+
+    try:
+        json.loads(_strip_jsonc(new.removeprefix("﻿")))
+    except ValueError:
+        logger.warning("Adaptive languages would write invalid JSONC; config left unchanged")
+        return None
+    return new
 
 
 def apply_adaptive_languages(source_root: str, detected: set[str]) -> bool:
@@ -2033,11 +2073,6 @@ def unset_config_value(key: str, storage_path: "Path | str | None" = None) -> bo
 def generate_template() -> str:
     """Return default config.jsonc content."""
     from . import __version__
-    from .parser.languages import LANGUAGE_REGISTRY
-
-    # Sorted alphabetically for readability - use .sorted() to ensure always sorted
-    languages_list = sorted(LANGUAGE_REGISTRY.keys())
-    lang_str = "\n  ".join(f'"{lang}",' for lang in languages_list)
 
     # All available tools (for disabled_tools reference) - sorted alphabetically
     # Removed: wait_for_fresh (v1.12.0 - check_freshness and wait_for_fresh tools removed)
@@ -2338,13 +2373,11 @@ def generate_template() -> str:
   ],
 
   // === Languages ===
-  // All supported languages. Comment out to disable a language
-  // and its dependent features (e.g. "sql" disables dbt parsing
-  // and search_columns tool).
-  // Each language on its own line (sorted alphabetically):
-  "languages": [
-     {lang_str}
-  ],
+  // With no `languages` key every language is enabled, including ones added
+  // in later releases. Set it only to deliberately restrict indexing; a
+  // disabled language also disables its dependent features (e.g. "sql"
+  // disables dbt parsing and search_columns).
+  // "languages": ["python", "typescript"],
 
   // "languages_adaptive": false,
   //   When true, jcodemunch auto-manages the languages list in this

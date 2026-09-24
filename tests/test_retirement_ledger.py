@@ -129,9 +129,9 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     carry `fetch-depth: 0` for this test; if the base cannot be found, the
     remedy is in the message rather than in a silence.
 
-    ⚠ `-def test_` misses an indented `def` (a test method inside a class),
-    which fails LOUD rather than quiet, so do not "fix" it into a substring
-    match.
+    ⚠ A removed `def` is matched at any indentation, so a retired test method
+    inside a class counts; column 0 only left such a retirement no passing
+    route. Still anchored at the diff's `-`, never a substring match.
     """
     import subprocess
 
@@ -193,10 +193,11 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     else:
         prior_paths = {r["path"] for r in json.loads(prior)["retired"]}
     _rc, diff = _git("diff", base, "--", "tests/")
+    # Indented too: a test method in a class is retired the same way.
     removed = {
-        ln[len("-def "):].split("(")[0]
+        m.group(1)
         for ln in diff.splitlines()
-        if ln.startswith("-def test_")
+        if (m := re.match(r"-\s*(?:async\s+)?def (test_\w+)", ln))
     }
     missing = []
     for r in _ledger():

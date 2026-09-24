@@ -155,6 +155,13 @@
       "replacement": "tests/test_parse_budget_python_side.py::test_a_walk_past_the_deadline_is_stopped_and_the_file_named",
       "commit": "L-116",
       "date": "2026-10-05"
+    },
+    {
+      "path": "tests/test_config.py::test_template_languages_synced_from_registry",
+      "lesson": "A test that requires the defect to exist is its witness, not its guard (Practice 9): it asserted the config template lists every registry language as an active entry. That kept template and registry in sync on the day a config was written and froze the set afterwards, so every language added later was disabled in that config. The template now writes no list, and an absent key means every language, including later ones.",
+      "replacement": "tests/test_languages_config_drift.py::test_absent_languages_means_every_language_enabled",
+      "commit": "fix(config): stop writing an active languages list into new configs",
+      "date": "2026-10-09"
     }
   ]
 }
